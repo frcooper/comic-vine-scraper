@@ -625,25 +625,107 @@ def __issue_parse_story_credits(issue, dom):
 
 
 #===========================================================================            
+def __table_row(longest_cols, data, ftable):
+   for i in range(len(longest_cols)):
+      tdata = data[i]
+      l = longest_cols[i] + 2 - len(tdata)
+      r = l // 2
+      for c in range(r):
+         tdata = "‌‌ " + tdata + "‌‌ "
+      if l % 2 == 1:
+         tdata = tdata + "‌‌ "
+      ftable = ftable + "|" + tdata
+   return ftable + "|\n"
+
+#===========================================================================
+
+
 def __issue_parse_summary(issue, dom):
+   # sourcery skip: use-fstring-for-concatenation
    ''' Parse the current comic's summary details from the DOM. '''
 
    # grab the issue description, and do a bunch of modifications and 
    # replaces to massage it into a nicer "summary" text
 #   PARAGRAPH = re.compile(r'<br />')
    OVERVIEW = re.compile('Overview')
-   PARAGRAPH = re.compile(r'<[bB][rR] ?/?>|<[Pp] ?>')
+   #Additions by Azuravian
+   TITLES = re.compile(r'<[Pp]><[Bb]>|<[Pp]><[sS][tT][rR][oO][nN][gG]>')
+   CONNECTS = re.compile(r'</[Pp]><[Pp]>')
+   HEADINGS = re.compile(r'<[Hh][1-5] ?>')
+   HEADINGS2 = re.compile(r'</[Hh][1-5] ?>')
+   LISTITEMS = re.compile(r'<[Ll][Ii]>')
+   MULTILINE = re.compile('\n{2,}')
+   BOLD = re.compile(r'<[Bb]>|<[sS][tT][rR][oO][nN][gG]>|</[Bb]>|</[sS][tT][rR][oO][nN][gG]>')
+   TABLE = re.compile(r'<[Tt][Aa][Bb][Ll][Ee].*?>(.*?)</[Tt][Aa][Bb][Ll][Ee]>')
+   THEAD = re.compile(r'<[Tt][Hh][Ee][Aa][Dd]*?>(.*?)</[Tt][Hh][Ee][Aa][Dd]>')
+   TH = re.compile(r'<[Tt][Hh].*?>(.*?)</[Tt][Hh]>')
+   TROW = re.compile(r'<[Tt][Rr].*?>(.*?)</[Tt][Rr]>')
+   TDATA = re.compile(r'<[Tt][Dd].*?>(.*?)</[Tt][Dd]>')
+   #End Additions
+   PARAGRAPH = re.compile(r'<[bB][rR] ?/?>|<[Pp] ?>|<[Hh][1-5] ?>|</[Uu][Ll] ?>')
    NBSP = re.compile('&nbsp;?')
    MULTISPACES = re.compile(' {2,}')
    STRIP_TAGS = re.compile('<.*?>')
    LIST_OF_COVERS = re.compile('(?is)list of covers.*$')
    if is_string(dom.results.description):
       summary_s = OVERVIEW.sub('', dom.results.description)
+      summary_s = HEADINGS.sub('\n<H2>**', summary_s)
+      summary_s = HEADINGS2.sub('**\n</H2>', summary_s)
+      summary_s = CONNECTS.sub('\n</p><p>', summary_s)
+      summary_s = TITLES.sub('\n<p><b>', summary_s)      
+      try: 
+         wtable = TABLE.search(summary_s).group(1)
+      except:
+         wtable = False
+      if wtable:
+         hthead = THEAD.search(wtable).group(1)
+         if hthead:
+            hrow = TROW.search(hthead).group(1)
+            hdata = TH.findall(hrow)
+            headers = []
+            for h in hdata:
+               headers.append(h)
+            wtable = THEAD.sub('', wtable)
+         trows = TROW.findall(wtable)
+         cleanrows = [hdata]
+         for row in trows:
+            tdata = TDATA.findall(row)
+            cleanrows.append(tdata)
+         longest_cols = []
+         columns = zip(*cleanrows)
+         for col in columns:
+            longest_cols.append(max(len(string) for string in col))
+   
+         #Build Table
+         ftable = ""
+         
+         #Header Top Border
+         for i in range(len(longest_cols)):
+            bdata = "+"
+            for c in range(longest_cols[i] + 2):
+               bdata = bdata + "="
+            ftable = ftable + bdata
+         eqline = ftable = ftable + "+\n"
+         minline = eqline.replace("=", "-")
+
+         #Add each row
+         for row in cleanrows:
+            ftable = __table_row(longest_cols, row, ftable)
+            if row != cleanrows[-1] and row != cleanrows[0]:
+               ftable = ftable + minline
+            elif row == cleanrows[0]:
+               ftable = ftable + eqline
+         #Table Bottom Border
+         ftable = "\n" + ftable + eqline
+         summary_s = TABLE.sub(ftable, summary_s)
+      summary_s = BOLD.sub('*', summary_s)
       summary_s = PARAGRAPH.sub('\n', summary_s)
+      summary_s = LISTITEMS.sub('\n  •  ', summary_s)
       summary_s = STRIP_TAGS.sub('', summary_s)
       summary_s = MULTISPACES.sub(' ', summary_s)
       summary_s = NBSP.sub(' ' , summary_s)
       summary_s = PARAGRAPH.sub('\n', summary_s)
+      summary_s = MULTILINE.sub('\n\n', summary_s)
       summary_s = summary_s.replace(r'&amp;', '&')
       summary_s = summary_s.replace(r'&quot;', '"')
       summary_s = summary_s.replace(r'&lt;', '<')
