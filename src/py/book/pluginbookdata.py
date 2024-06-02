@@ -14,6 +14,8 @@ import clr
 import db
 import log
 
+from datetime import datetime
+
 clr.AddReference('System')
 
 #==============================================================================
@@ -22,7 +24,8 @@ class PluginBookData(BookData):
    
    __ISSUE_KEY = "comicvine_issue"
    __SERIES_KEY = "comicvine_volume"
-   
+   __SCRAPE_DT = "comicvine_scrape_date"
+
    #===========================================================================   
    def __init__(self, crbook, scraper):
       '''
@@ -113,7 +116,9 @@ class PluginBookData(BookData):
          s = re.sub(r",(\s+)", r"\1", s) if s else ""
          return re.sub(r",", r" ", s)
       
-      
+      if len(ok_to_update) > 0:
+         self.__crbook.SetCustomValue(PluginBookData.__SCRAPE_DT, sstr(datetime.utcnow()))        
+
       if "series_s" in ok_to_update:
          self.__crbook.Series = self.series_s
          ok_to_update.remove("series_s")
