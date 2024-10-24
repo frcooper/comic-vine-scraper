@@ -40,6 +40,7 @@ class MatchScore(object):
       # this function splits up the given comic book series name into
       # separate words, so we can compare different series names word-by-word
       def split( name_s ):
+         name_s = name_s.split("(20")[0].split("(19")[0]
          if name_s is None: name_s = ''
          name_s = re.sub('\'','', name_s).lower()
          name_s = re.sub(r'\W+',' ', name_s)
@@ -51,20 +52,28 @@ class MatchScore(object):
       # 1. first, compute the 'namescore', which is based on how many words in
       #    our book name match words in the series' name (usually comes up with 
       #    a value on the range [5, 20], approximately.)  
-      bookname_s = '' if not book.series_s else book.series_s
+      bookname_s = '' if not book.series_s else book.series_s.lower().replace("the ","")
       if bookname_s and book.format_s:
          bookname_s += ' ' + book.format_s
-      bookwords = split(bookname_s)   
-      serieswords = split(series_ref.series_name_s)
+      bookwords = split(bookname_s)
+      series_r = series_ref.series_name_s.lower().replace("the ","")
+      serieswords = split(series_r)
       
       namescore_n = 0
+	  
+      if bookname_s == series_r:
+         namescore_n += 50
+
+      if ("annual" in series_r and "annual" not in bookname_s) or ("annual" in bookname_s and "annual" not in series_r):
+         namescore_n -= 50
+		
       for word in bookwords:
          if word in serieswords:
             namescore_n += 5
             serieswords.remove(word)
          else:
-            namescore_n -= 1
-      namescore_n -= len(serieswords)
+            namescore_n -= 3
+      namescore_n -= len(serieswords)*3
       
       # 2. if the series was one that the user has chosen in the past, give it's
       #    score a very small boost (about the equivalent of it matching one 
@@ -84,6 +93,7 @@ class MatchScore(object):
       #    with the number of issues in the series.  a step function that 
       #    returns a very high number (100) if the number of issues in the 
       #    series is compatible, and a very low one (-100) if it is not.  
+      bookscore_n = 0
       booknumber_n = book.issue_num_s if book.issue_num_s else '-1000'
       booknumber_n = re.sub('[^\d.-]+', '', booknumber_n)
       try:
@@ -96,12 +106,21 @@ class MatchScore(object):
          # long-running and popular. Also, we might overlook them in the 
          # bookscore because and databases will often not have all of issues, 
          # so their issue count will not be high enough.
-         bookscore_n = 100
-      else:    
-         # otherwise, if we get a good score only if we have the right
-         # number of books in the series to match the booknumber (-1 for
-         # delayed updates of the database).
-         bookscore_n = 100 if booknumber_n-1 <= series_count_n else -100
+         bookscore_n = 50
+      
+      # otherwise, if we get a good score only if we have the right
+      # number of books in the series to match the booknumber (-1 for
+      # delayed updates of the database).
+      if booknumber_n-1 <= series_count_n:
+        bookscore_n += 100  
+      elif series_count_n > 50 and booknumber_n > 300:
+        bookscore_n -= 60
+      elif series_count_n > 100 and booknumber_n > 300:
+        bookscore_n -= 30
+      elif booknumber_n - series_count_n < 3 and booknumber_n > 50:
+        bookscore_n -= 30
+      else:
+        bookscore_n -= 100
       
 
       # 5. get the 'yearscore', which severely penalizes (-500) any series 
@@ -112,13 +131,24 @@ class MatchScore(object):
       series_year_n = series_ref.volume_year_n
       book_year_n = book.pub_year_n if is_valid_year_b(book.pub_year_n) \
          else book.rel_year_n
-      yearscore_n = 0
+      yearscore_n = 1000
       if is_valid_year_b(book_year_n):
          if not is_valid_year_b(series_year_n):
             yearscore_n = -100
          elif series_year_n > book_year_n:
             yearscore_n = -500
-            
+         else:
+            try:
+                if booknumber_n > 0 and booknumber_n < 500:
+                    if booknumber_n > 12:
+                        yearscore_n -= abs(book_year_n-series_year_n-int(booknumber_n/12))*10
+                    else:
+                        yearscore_n -= abs(book_year_n-series_year_n)*20                        
+                else:
+                    yearscore_n -= (book_year_n-series_year_n)*10
+            except:
+                yearscore_n -= (book_year_n-series_year_n-int())*10
+                
       # 6. get the 'recency score', which is a tiny negative value (usually
       #    around on the range [-0.50, 0]) that gets worse (smaller) the older 
       #    the series is.   this is really a tie-breaker for series with 

@@ -76,7 +76,7 @@ def __perceptual_hash(image):
             g.SmoothingMode = SmoothingMode.HighQuality
             g.InterpolationMode = InterpolationMode.HighQualityBicubic
             g.DrawImage(image, Rectangle(0,0,SIZE,SIZE), 0, 0,
-               image.Width, image.Height, GraphicsUnit.Pixel, attr)
+               image.Width, image.Height/2, GraphicsUnit.Pixel, attr)
                
             # convert image pixels into bits, where 1 means pixel is greater
             # than image average, and 0 means pixel is less than average.

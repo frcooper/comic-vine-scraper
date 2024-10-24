@@ -32,7 +32,7 @@ __series_details_cache = None
 
 # comicvine has a tendency to return WAY too many search results, so we 
 # limit the number returned.  set in _initialize() if user has overridden. 
-__max_search_results = 100
+__max_search_results = 1000
 
 # this is the comicvine api key to use when accessing the comicvine api.
 # it is set when calling _initialize().
@@ -159,6 +159,9 @@ def __query_series_refs(search_terms_s, callback_function):
    cancelled_b = [False]
    series_refs = set()
    
+   #PATCH by Xelloss
+   series_refs2 = set()
+   
    # 1. do the initial query, record how many results in total we're getting
    num_results_n = 0
    if search_terms_s and search_terms_s.strip():
@@ -174,7 +177,7 @@ def __query_series_refs(search_terms_s, callback_function):
       #    volume OR a list of volumes in its 'volume' variable.  
       if not isinstance(dom.results.volume, list):
          if len(series_refs) < __max_search_results:
-            series_refs.add( __volume_to_seriesref(dom.results.volume) )
+            series_refs2.add( __volume_to_seriesref(dom.results.volume) ) # patched by Xelloss
       else:
          for volume in dom.results.volume:
             if len(series_refs) < __max_search_results:
@@ -184,49 +187,94 @@ def __query_series_refs(search_terms_s, callback_function):
          #    queries now to get the rest of them
          RESULTS_PAGE_SIZE = 100
          iteration = RESULTS_PAGE_SIZE
-         if iteration < num_results_n:
-            num_remaining_pages = num_results_n // RESULTS_PAGE_SIZE
             
-            # 3a. do a callback for the first results (initial query)...
-            cancelled_b[0] = callback_function(
-               iteration, num_remaining_pages)
+         #PATCH by Xelloss 
+         first_result = True
+         match_criteria = 0
+         match_criteria_next = 999999
+         termclean_list = []
+         for term in search_terms_s.split(" "):
+             termclean = unicode(term).lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ö","o").replace("è","e").replace("ñ","n").replace("ä","a")
+             termclean = re.sub('[^a-z0-9]+', '', termclean)
+             termclean_list.append(termclean)
+         terms_n = len(termclean_list)
+         while first_result and terms_n - match_criteria > int(terms_n / 3.0):
+             inc_matches_counter = 0
+             for serie in series_refs:
+                 remove = 0
+                 serieclean = unicode(serie).lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ö","o").replace("è","e").replace("ñ","n").replace("ä","a")
+                 serieclean = re.sub('[^a-z0-9]+', '', serieclean[0:serieclean.rfind("(")+1])
+                 for termclean in termclean_list:
+                     if termclean not in serieclean:
+                         remove += 1
+                 if remove <= match_criteria or remove < terms_n / 5.0:
+                     series_refs2.add(serie)
+                     first_result = False
+                 else:
+                     inc_matches_counter += 1        
+                 if remove < match_criteria_next:
+                     match_criteria_next = remove
+             match_criteria = match_criteria_next 
+         if inc_matches_counter > 10:
+            num_results_n = iteration 
+       
+         num_remaining_pages = num_results_n // RESULTS_PAGE_SIZE
+            
+         # 3a. do a callback for the first results (initial query)...
+         cancelled_b[0] = callback_function(
+            iteration, num_remaining_pages)
 
-            while iteration < num_results_n and \
-                  len(series_refs) < __max_search_results and \
-                  not cancelled_b[0]:
+         while iteration < num_results_n and \
+              len(series_refs) < __max_search_results and \
+              not cancelled_b[0]:
 
-               # 4. query for the next batch of results, in a new dom
-               dom = cvconnection._query_series_ids_dom(__api_key,
-                  search_terms_s, iteration//RESULTS_PAGE_SIZE+1)
-               iteration += RESULTS_PAGE_SIZE
-               
-               # 4a. do a callback for the most recent batch of results
-               cancelled_b[0] = callback_function(
-                  iteration, num_remaining_pages)
+           # 4. query for the next batch of results, in a new dom
+           dom = cvconnection._query_series_ids_dom(__api_key,
+              search_terms_s, iteration//RESULTS_PAGE_SIZE+1)
+           iteration += RESULTS_PAGE_SIZE
+           
+           # 4a. do a callback for the most recent batch of results
+           cancelled_b[0] = callback_function(
+              iteration, num_remaining_pages)
 
-               if "number_of_page_results" not in dom.__dict__ or \
-                     int(dom.number_of_page_results) < 1 or \
-                        not "volume" in dom.results.__dict__:
-                  log.debug("WARNING: got empty results page") # issue 33, 396
+           if "number_of_page_results" not in dom.__dict__ or \
+                 int(dom.number_of_page_results) < 1 or \
+                    not "volume" in dom.results.__dict__:
+              log.debug("WARNING: got empty results page") # issue 33, 396
+           else:
+              # 5. convert the current batch of results into SeriesRefs,
+              #    and then add them to the returned list.  Again, the dom
+              #    could contain a single volume, OR a list.
+              if not isinstance(dom.results.volume, list):
+                 if len(series_refs) < __max_search_results:
+                    series_refs.add(
+                       __volume_to_seriesref(dom.results.volume))
+              else:
+                 for volume in dom.results.volume:
+                    if len(series_refs) < __max_search_results:
+                       series_refs.add( __volume_to_seriesref(volume) )
+           
+           #PATCH by Xelloss
+           for serie in series_refs:
+               remove = 0
+               serieclean = unicode(serie).lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ö","o").replace("è","e").replace("ñ","n").replace("ä","a")
+               serieclean = re.sub('[^a-z0-9]+', '', serieclean[0:serieclean.rfind("(")+1])
+               for termclean in termclean_list:
+                   if termclean not in serieclean:
+                       remove += 1
+               if remove <= match_criteria or remove < terms_n / 5.0:
+                   series_refs2.add(serie)
                else:
-                  # 5. convert the current batch of results into SeriesRefs,
-                  #    and then add them to the returned list.  Again, the dom
-                  #    could contain a single volume, OR a list.
-                  if not isinstance(dom.results.volume, list):
-                     if len(series_refs) < __max_search_results:
-                        series_refs.add(
-                           __volume_to_seriesref(dom.results.volume))
-                  else:
-                     for volume in dom.results.volume:
-                        if len(series_refs) < __max_search_results:
-                           series_refs.add( __volume_to_seriesref(volume) )
+                   inc_matches_counter += 1
+               if inc_matches_counter > 10:
+                   num_results_n = iteration
                         
    # 6. Done.  series_refs now contained whatever SeriesRefs we could find
-   if not cancelled_b[0] and len( series_refs ) < num_results_n:
+   if not cancelled_b[0] and len(series_refs2) == __max_search_results: #patched by Xelloss
       log.debug("...too many matches, only getting ",
                 "the first ", __max_search_results )
 
-   return set() if cancelled_b[0] else series_refs   
+   return set() if cancelled_b[0] else series_refs2   
 
    
 # ==========================================================================   
